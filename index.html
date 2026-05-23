@@ -221,6 +221,7 @@
       <button class="ctrl-btn play-btn" id="btn-play">▶</button>
       <button class="ctrl-btn" id="btn-next">⏭</button>
       <button class="ctrl-btn" id="btn-loop">🔁</button>
+      <button class="ctrl-btn" id="btn-stop" title="Fechar música" style="font-size:14px">✕</button>
       <div class="fade-group">
         <span class="fade-label">fade</span>
         <input type="range" class="fade-slider" id="fade-slider" min="0" max="5" step="0.5" value="1.5" style="--val:30%">
@@ -422,9 +423,17 @@ function applyRemoteState(data){
 
   // Mesma faixa — apenas sincroniza play/pause e posição
   if(idx === currentIdx){
-    // Sincroniza posição se a diferença for > 3s (evita micro-saltos)
-    if(data.currentTime !== undefined && audio.duration && Math.abs(audio.currentTime - data.currentTime) > 3){
-      audio.currentTime = data.currentTime;
+    // Atualiza barra de progresso para ouvintes em tempo real
+    if(data.currentTime !== undefined && audio.duration){
+      const pct = (data.currentTime / audio.duration) * 100;
+      const p = document.getElementById('progress');
+      p.value = pct; p.style.setProperty('--val', pct.toFixed(1)+'%');
+      document.getElementById('cur-time').textContent = fmtTime(data.currentTime);
+      document.getElementById('dur-time').textContent = fmtTime(audio.duration);
+      // Só faz seek real se o drift for grande (> 3s)
+      if(Math.abs(audio.currentTime - data.currentTime) > 3){
+        audio.currentTime = data.currentTime;
+      }
     }
     if(data.isPlaying && !isPlaying){
       audio.play().then(() => {
@@ -484,10 +493,14 @@ function publish(){
   }).catch(e => console.warn('Firebase write:', e));
 }
 
-// Publica posição continuamente enquanto toca (a cada 2s)
-setInterval(() => {
-  if(isMaster && isPlaying && fbReady && audio.duration) publish();
-}, 2000);
+// Publica posição para ouvintes — throttle de 1s para não spammar Firebase
+let _lastPublishTs = 0;
+function _throttledPublish(){
+  const now = Date.now();
+  if(now - _lastPublishTs < 1000) return;
+  _lastPublishTs = now;
+  publish();
+}
 
 // ═══════════════════════════════════════════════════════════
 //  MÚSICA — carregar lista
@@ -592,18 +605,13 @@ function stopAll(){
   });
 }
 
-function fadeIn(){ fadeVolume(0, getVol(), fadeMs, null); }
+function fadeIn(){ audio.volume = Math.max(0, Math.min(1, getVol())); }
 
 function fadeVolume(from, to, dur, onDone){
+  // Fade removido — troca instantânea
   stopFade();
-  audio.volume = Math.max(0, Math.min(1, from));
-  if(dur <= 0){ audio.volume = Math.max(0, Math.min(1, to)); onDone?.(); return; }
-  const steps = 40, dt = dur/steps; let step = 0;
-  fadeTimer = setInterval(() => {
-    step++;
-    audio.volume = Math.max(0, Math.min(1, from + (to-from)*(step/steps)));
-    if(step >= steps){ clearInterval(fadeTimer); fadeTimer=null; audio.volume=Math.max(0,Math.min(1,to)); onDone?.(); }
-  }, dt);
+  audio.volume = Math.max(0, Math.min(1, to));
+  onDone?.();
 }
 function stopFade(){ if(fadeTimer){ clearInterval(fadeTimer); fadeTimer=null; } }
 function getVol(){ return document.getElementById('vol-slider').value / 100; }
@@ -621,6 +629,8 @@ audio.addEventListener('timeupdate', () => {
   p.value = pct; p.style.setProperty('--val', pct.toFixed(1)+'%');
   document.getElementById('cur-time').textContent = fmtTime(audio.currentTime);
   document.getElementById('dur-time').textContent = fmtTime(audio.duration);
+  // Mestre publica posição continuamente (a cada ~1s, throttled)
+  if(isMaster && isPlaying && fbReady) _throttledPublish();
 });
 
 audio.addEventListener('ended', () => {
@@ -653,10 +663,15 @@ document.getElementById('btn-loop').addEventListener('click', () => {
   document.getElementById('btn-loop').classList.toggle('active', isLooping);
   publish();
 });
+document.getElementById('btn-stop').addEventListener('click', () => {
+  if(!isMaster) return;
+  stopAll();
+});
 document.getElementById('progress').addEventListener('input', function(){
   if(!isMaster || !audio.duration) return;
   audio.currentTime = (this.value/100)*audio.duration;
   this.style.setProperty('--val', this.value+'%');
+  publish(); // publica seek imediatamente para ouvintes
 });
 document.getElementById('vol-slider').addEventListener('input', function(){
   this.style.setProperty('--val', this.value+'%');
