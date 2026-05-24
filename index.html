@@ -214,16 +214,30 @@
   /* Cat pill no card (visível na aba "Todas") */
   .tab-pane[data-tab="all"] .track-cat-badge { display:inline-block; }
 
-  /* Assign dropdown */
-  .track-assign { position:relative; }
-  .assign-btn { background:none; border:1px solid var(--border); color:var(--text-muted); font-size:11px; padding:2px 7px; border-radius:2px; cursor:pointer; font-family:'Cinzel',serif; transition:all 0.2s; white-space:nowrap; }
-  .assign-btn:hover { border-color:var(--border-bright); color:var(--text-dim); }
-  .assign-dropdown { position:absolute; right:0; top:calc(100% + 4px); z-index:100; background:#1e1810; border:1px solid var(--border-bright); border-radius:3px; min-width:140px; box-shadow:0 8px 24px rgba(0,0,0,0.6); }
-  .assign-dropdown.hidden { display:none; }
-  .assign-opt { display:flex; align-items:center; gap:8px; padding:7px 12px; cursor:pointer; font-size:12px; color:var(--text-dim); transition:background 0.15s; white-space:nowrap; }
-  .assign-opt:hover { background:rgba(200,144,42,0.08); color:var(--text); }
-  .assign-opt.selected { color:var(--gold); }
-  .assign-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+  /* Assign button */
+  .assign-btn { background:none; border:1px solid var(--border); color:var(--text-muted); font-size:11px; padding:2px 8px; border-radius:2px; cursor:pointer; font-family:'Cinzel',serif; transition:all 0.2s; white-space:nowrap; max-width:90px; overflow:hidden; text-overflow:ellipsis; }
+  .assign-btn:hover { border-color:var(--gold-dim); color:var(--gold); }
+
+  /* Modal de categoria */
+  .cat-modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.7); z-index:1000; display:flex; align-items:center; justify-content:center; backdrop-filter:blur(2px); }
+  .cat-modal-overlay.hidden { display:none; }
+  .cat-modal { background:#1a1408; border:1px solid var(--border-bright); border-radius:6px; width:320px; max-width:90vw; position:relative; overflow:hidden; box-shadow:0 24px 64px rgba(0,0,0,0.8); }
+  .cat-modal::before { content:''; position:absolute; top:0; left:0; right:0; height:1px; background:linear-gradient(90deg,transparent,var(--gold),transparent); }
+  .cat-modal-header { display:flex; align-items:center; justify-content:space-between; padding:16px 20px 12px; }
+  .cat-modal-title { font-family:'Cinzel',serif; font-size:13px; color:var(--gold); letter-spacing:0.1em; }
+  .cat-modal-track { font-size:12px; color:var(--text-muted); font-style:italic; margin:0 20px 12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .cat-modal-close { background:none; border:none; color:var(--text-muted); font-size:18px; cursor:pointer; padding:2px 6px; line-height:1; transition:color 0.2s; }
+  .cat-modal-close:hover { color:var(--text); }
+  .cat-modal-list { display:flex; flex-direction:column; gap:0; padding:0 0 8px; max-height:340px; overflow-y:auto; }
+  .cat-modal-opt { display:flex; align-items:center; gap:12px; padding:11px 20px; cursor:pointer; transition:background 0.15s; border-bottom:1px solid rgba(58,46,24,0.5); }
+  .cat-modal-opt:last-child { border-bottom:none; }
+  .cat-modal-opt:hover { background:rgba(200,144,42,0.07); }
+  .cat-modal-opt.selected { background:rgba(200,144,42,0.1); }
+  .cat-modal-dot { width:12px; height:12px; border-radius:50%; flex-shrink:0; }
+  .cat-modal-name { font-family:'Cinzel',serif; font-size:13px; color:var(--text-dim); flex:1; }
+  .cat-modal-opt.selected .cat-modal-name { color:var(--gold-light); }
+  .cat-modal-check { color:var(--gold); font-size:14px; opacity:0; }
+  .cat-modal-opt.selected .cat-modal-check { opacity:1; }
 
   .empty { text-align:center; padding:40px 20px; color:var(--text-muted); font-style:italic; font-size:15px; border:1px dashed var(--text-muted); border-radius:3px; display:none; }
   .empty.show { display:block; }
@@ -319,6 +333,18 @@
   <div class="tab-section">
     <div class="tab-bar" id="tab-bar"></div>
     <div id="tab-panes"></div>
+  </div>
+
+  <!-- Modal de categoria -->
+  <div class="cat-modal-overlay hidden" id="cat-modal-overlay">
+    <div class="cat-modal">
+      <div class="cat-modal-header">
+        <span class="cat-modal-title">✦ ATRIBUIR CATEGORIA</span>
+        <button class="cat-modal-close" id="cat-modal-close">✕</button>
+      </div>
+      <div class="cat-modal-track" id="cat-modal-track"></div>
+      <div class="cat-modal-list" id="cat-modal-list"></div>
+    </div>
   </div>
 </div>
 
@@ -651,7 +677,7 @@ function makeTrackCard(t, globalIdx, showCat){
     ${showCat && cat ? `<span class="track-cat-badge" style="color:${color};border-color:${color}">${catName}</span>` : '<span></span>'}
     <div style="display:flex;align-items:center;gap:6px">
       <span class="track-duration" id="dur-${globalIdx}">—</span>
-      ${isMaster ? `<div class="track-assign"><button class="assign-btn" data-idx="${globalIdx}">${cat?catName:'+ Cat'}</button></div>` : ''}
+      ${isMaster ? `<button class="assign-btn" data-idx="${globalIdx}">${cat?catName:'+ Cat'}</button>` : ''}
     </div>`;
 
   card.addEventListener('click', e=>{
@@ -660,17 +686,13 @@ function makeTrackCard(t, globalIdx, showCat){
     playTrack(globalIdx);
   });
 
-  // Botão de atribuir categoria
+  // Botão de atribuir categoria — abre modal
   if(isMaster){
-    const assignWrap = card.querySelector('.track-assign');
-    if(assignWrap){
-      const btn  = assignWrap.querySelector('.assign-btn');
-      const dropdown = buildAssignDropdown(globalIdx, btn);
-      assignWrap.appendChild(dropdown);
+    const btn = card.querySelector('.assign-btn');
+    if(btn){
       btn.addEventListener('click', e=>{
         e.stopPropagation();
-        closeAllDropdowns(dropdown);
-        dropdown.classList.toggle('hidden');
+        openCatModal(globalIdx);
       });
     }
   }
@@ -685,31 +707,43 @@ function makeTrackCard(t, globalIdx, showCat){
   return card;
 }
 
-function buildAssignDropdown(idx, refBtn){
-  const dd = document.createElement('div');
-  dd.className = 'assign-dropdown hidden';
+// Modal de categoria
+let _modalIdx = -1;
 
-  // Opção "Sem categoria"
+function openCatModal(idx){
+  _modalIdx = idx;
+  const t = tracks[idx];
+  document.getElementById('cat-modal-track').textContent = t.name;
+  const list = document.getElementById('cat-modal-list');
+  list.innerHTML = '';
+
+  // Opção sem categoria
   const noneOpt = document.createElement('div');
-  noneOpt.className = 'assign-opt'+((!tracks[idx].cat||tracks[idx].cat==='')?' selected':'');
-  noneOpt.innerHTML = `<span class="assign-dot" style="background:var(--border)"></span> Sem categoria`;
-  noneOpt.addEventListener('click', e=>{ e.stopPropagation(); assignCat(idx,''); dd.classList.add('hidden'); });
-  dd.appendChild(noneOpt);
+  noneOpt.className = 'cat-modal-opt'+((!t.cat||t.cat==='')?' selected':'');
+  noneOpt.innerHTML = `<span class="cat-modal-dot" style="background:var(--border)"></span><span class="cat-modal-name">Sem categoria</span><span class="cat-modal-check">✓</span>`;
+  noneOpt.addEventListener('click',()=>{ assignCat(idx,''); closeCatModal(); });
+  list.appendChild(noneOpt);
 
   categories.forEach(cat=>{
     const opt = document.createElement('div');
-    opt.className='assign-opt'+(tracks[idx].cat===cat.id?' selected':'');
-    opt.innerHTML=`<span class="assign-dot" style="background:${cat.color}"></span> ${cat.name}`;
-    opt.addEventListener('click', e=>{ e.stopPropagation(); assignCat(idx,cat.id); dd.classList.add('hidden'); });
-    dd.appendChild(opt);
+    opt.className = 'cat-modal-opt'+(t.cat===cat.id?' selected':'');
+    opt.innerHTML = `<span class="cat-modal-dot" style="background:${cat.color}"></span><span class="cat-modal-name">${cat.name}</span><span class="cat-modal-check">✓</span>`;
+    opt.addEventListener('click',()=>{ assignCat(idx,cat.id); closeCatModal(); });
+    list.appendChild(opt);
   });
-  return dd;
+
+  document.getElementById('cat-modal-overlay').classList.remove('hidden');
 }
 
-function closeAllDropdowns(except){
-  document.querySelectorAll('.assign-dropdown').forEach(d=>{ if(d!==except) d.classList.add('hidden'); });
+function closeCatModal(){
+  document.getElementById('cat-modal-overlay').classList.add('hidden');
+  _modalIdx = -1;
 }
-document.addEventListener('click',()=>closeAllDropdowns(null));
+
+document.getElementById('cat-modal-close').addEventListener('click', closeCatModal);
+document.getElementById('cat-modal-overlay').addEventListener('click', e=>{
+  if(e.target===document.getElementById('cat-modal-overlay')) closeCatModal();
+});
 
 function assignCat(idx, catId){
   tracks[idx].cat = catId;
